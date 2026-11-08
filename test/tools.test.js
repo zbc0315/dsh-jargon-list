@@ -126,6 +126,31 @@ test('jargon_save writes as the agent and reports whether it was an update', asy
   assert.equal(result.total, 0)
 })
 
+test('jargon_list render names the file even when the list is empty', async () => {
+  const store = fakeStore({ async read() {
+    return { terms: [], revision: 'empty', file: path.join(CWD, '.dsh/jargon.json') }
+  } })
+  const list = pick(jargonToolDefinitions({}, store), 'jargon_list')
+  const result = await list.execute({}, fakeExec())
+  assert.equal(result.total, 0)
+  const text = list.output.render({}, result)[0].text
+  assert.match(text, /还没有记录任何黑话/)
+  assert.match(text, /jargon\.json/)
+})
+
+test('jargon_save reports updated for a full-width/case variant of an existing term', async () => {
+  const store = fakeStore({ async read() {
+    return {
+      terms: [{ id: 'a1', term: 'ABC', definition: '旧的', createdAt: 't0', updatedAt: 't0', updatedBy: 'user' }],
+      revision: 'rev1',
+      file: path.join(CWD, '.dsh/jargon.json'),
+    }
+  } })
+  const save = pick(jargonToolDefinitions({}, store), 'jargon_save')
+  const result = await save.execute({ term: 'ａｂｃ', definition: '新的' }, fakeExec())
+  assert.equal(result.updated, true, 'NFKC/case variants are the same term')
+})
+
 test('jargon_delete removes by term', async () => {
   let seen
   const store = fakeStore({

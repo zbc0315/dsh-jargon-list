@@ -14,6 +14,8 @@
 
 const path = require('node:path')
 
+const { sameTerm } = require('./store')
+
 /* ------------------------------------------------------------------ *
  * 参数编译：{ key: { required: true, ...schema } } → { type:'object', properties, required }
  * ------------------------------------------------------------------ */
@@ -71,7 +73,9 @@ function renderSummary(name, value) {
   if (!value || typeof value !== 'object') return `${name}: done`
   if (name === 'jargon_list') {
     const terms = Array.isArray(value.terms) ? value.terms : []
-    if (terms.length === 0) return 'jargon_list: 本项目还没有记录任何黑话。'
+    if (terms.length === 0) {
+      return `jargon_list: 本项目还没有记录任何黑话（${value.file || '未知文件'}）。`
+    }
     const lines = terms.map((entry) => `- ${entry.term}：${oneLine(entry.definition)}`)
     return `jargon_list: 本项目 ${terms.length} 条黑话（${value.file || ''}）\n${lines.join('\n')}`
   }
@@ -135,9 +139,7 @@ function jargonToolDefinitions(ctx, store) {
     async (args, exec) => {
       const cwd = workspaceOf(exec)
       const before = await store.read(cwd)
-      const existing = before.terms.find(
-        (entry) => entry.term.toLowerCase() === String(args.term || '').trim().toLowerCase(),
-      )
+      const existing = before.terms.find((entry) => sameTerm(entry.term, args.term))
       const result = await store.save(cwd, { term: args.term, definition: args.definition, by: 'agent' })
       return {
         term: result.entry.term,
