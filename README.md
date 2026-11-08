@@ -16,16 +16,30 @@ Agent 做研究或执行任务时，常给一段复杂流程起个短名（“�
 
 黑话单让「起名」这个动作顺手落成一条可查的记录。
 
-## 安装（本地目录）
+## 安装
+
+### 从 npm 安装（推荐）
 
 ```bash
-cd dsh-jargon-list
-npm install          # 只为构建 client/bundle.js（esbuild + react）
-npm run verify       # build + check + node --test + 清单自检
+dsh plugin --profile web add @tom2012/dsh-jargon-list
 ```
 
-然后在本会话里让 agent 用 `plugin_manager` 安装这个目录（`action: install_bundle`，
-`target` 传本目录绝对路径）。安装后刷新 Web 页面。
+或者让 agent 用 `plugin_manager`（`action: install_bundle`，`target` 传 `@tom2012/dsh-jargon-list`）。
+装完刷新 Web 页面即可。
+
+兼容性：`engines.dsh` 声明为 `>=0.2.1-rc.5 <0.3.0-0`，已在 `0.2.1-rc.5` 与 `0.2.2-rc.1` 上实测
+（路由、三个工具、右侧栏页签注册、boot graph 下发全部通过）。`0.3.x` 未验证，会被有意挡在外面。
+
+### 本地目录开发
+
+```bash
+git clone https://github.com/zbc0315/dsh-jargon-list.git && cd dsh-jargon-list
+npm install          # 只为构建 client/bundle.js（esbuild + react）
+npm run verify       # build + check + node --test + 清单自检
+dsh plugin --profile web add "$PWD"
+```
+
+改完 `src/client/**` 后要重跑 `npm run build`（产物 `client/bundle.js` 进仓库，安装时不构建）。
 
 ## 打开方式
 
@@ -84,3 +98,7 @@ docs/         设计稿、实施计划、接口契约、验证记录
 
 设计与决策见 `docs/superpowers/specs/2026-11-08-jargon-list-design.md`，
 接口契约见 `docs/contracts/api.md`。
+
+## 许可
+
+MIT。验证记录、设计稿、接口契约都在 `docs/` 里（不随 npm 包发布，仓库里可读）。
