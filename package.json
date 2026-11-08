@@ -1,0 +1,49 @@
+{
+  "name": "@tom2012/dsh-jargon-list",
+  "version": "0.1.0",
+  "private": true,
+  "description": "黑话单：记录本项目里临时起的简称（黑话）及其详细含义，人和 agent 共用一份；右侧栏页签浏览、增删改查。",
+  "license": "MIT",
+  "main": "src/host/index.js",
+  "exports": {
+    ".": "./src/host/index.js",
+    "./client": "./client/bundle.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "client/bundle.js",
+    "locale",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "check": "node --check src/host/index.js && node --check src/host/store.js && node --check src/host/routes.js && node --check src/host/tools.js && node --check client/bundle.js",
+    "test": "node --test test/*.test.js",
+    "verify": "npm run build && npm run check && npm test && node tools/check-package.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
+}
