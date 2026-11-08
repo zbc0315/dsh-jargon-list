@@ -79,6 +79,11 @@ warnings: []
 注意：模型看到的是 `output.render` 的文本；工具的结构化 `value`（含 `term`/`total`/`updated`/`file`）
 只给 UI 与 presenter 用。所以「有没有更新」在文本里靠「已记录 / 已更新」区分，这是刻意选择。
 
+修完 host 代码后，运行中的进程仍是旧模块，因此用 `plugin_manager` 把插件行
+（`include:jargon-list`）关掉再打开一次来重载：`application: applied`，随后再让子 agent 调
+`jargon_list`，输出已变为 `本项目还没有记录任何黑话（/Users/tom/Projects/ask/.dsh/jargon.json）。`，
+确认热重载生效、无需重启整个 dsh web。重载后 `/-/jargon/state` 仍为 401（路由重新挂上且照样受鉴权保护）。
+
 测试后清理：`/Users/tom/Projects/ask/.dsh/jargon.json` 的测试条目已删除；记录最终文件状态。
 
 ## 4. 未验证 / 需要用户在真页面确认
