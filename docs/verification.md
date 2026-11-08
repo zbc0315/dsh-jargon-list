@@ -166,3 +166,59 @@ warnings: []
 敌意上下文跑 `apply`（5.2）、handler rejection（5.4）、以及用 `plugin_manager` 把该行
 **关掉再打开**跑了一遍真实的 unload/apply 循环（`application: applied`，之后路由 401、
 客户端 occupant 仍 `active: true`）。
+
+## 6. 与最新版 DSH（0.2.2-rc.1）的兼容性审查
+
+审查时间：2026-11-08。本机运行版本 `0.2.1-rc.5`，npm `latest` 为 `0.2.2-rc.1`（`alpha` 0.2.2-alpha.3）。
+
+### 6.1 结论
+
+**兼容。** 在隔离环境里真的用 `0.2.2-rc.1` 起了一个 web 实例并把本插件装上，host 半正常挂载路由、
+client 半进了 boot graph 并被成功下发。`engines.dsh` 现在声明为 `>=0.2.1-rc.5 <0.3.0-0`。
+
+### 6.2 逐项 API 核对（对比两个版本的 .d.ts / 源码）
+
+| 我们用到的接口 | 0.2.2-rc.1 状态 |
+| --- | --- |
+| `ctx.webServer.register({ kind:'prefix', path, handler })` | 仍在；新增的是可选的 `WebResourceRoute`（另一种路由形态），`WebRoute` 不变 |
+| `ctx.connection.requestRejection(req)` | 签名不变 |
+| `ctx.tools.register(definition)` / `ToolSchema.parameters` / `output.{schema,render}` / `execute` | 不变；`register` 多了可选的第二参数（`ToolRegistrationOptions`），`ToolDefinition` 挪到 `contracts.ts` 但形状一致 |
+| `ctx.sessions.get(id)` / `Session.header.cwd` | 不变（`SessionHeader.cwd?: string`） |
+| `ctx.workspaceRegistry.list()` → `{ path }` | `dsh-workspace` 类型无差异 |
+| `ctx.sidebarRightTabs.register({ id, kind, priority, title, guide })` | 不变（`tab-registry.d.ts` 无差异） |
+| `sidebar.right.pane.tab` 席位（keyed / session / `locale` / `inject`） | 声明不变；仅新增了 `navigation.destination`、`panel.isFloating` 等可选字段 |
+| `ctx.sidebarRight.openTab(kind)` / `openTabIn(sessionId, kind)` | 仍在，第二个参数是可选的 options |
+| `conversation.session.header.utilities` 席位 | 声明无差异 |
+| `ctx.locale.register(ns, {zh,en})` / `bind(ns)` | 不变；新增了 de/es/fr/ja/pt/ru 字典，`BuiltInLocaleId` 仍是 `zh \| en` |
+| `window.__ModuleLoader__.load({ id, factory })` | 协议不变（`ClientBundleRegistration` 仍是 `{id, chunk?, factory}`）；新增 `require.asset()` 与 `resolveAsset` 钩子，属可选能力 |
+| `package.json` 的 `dsh.client.{platform,immediately,inject}` | 字段不变 |
+| bundle patch `- insert: [{ id, name }]` | 不变（组出来的配置里仍是同一行） |
+| `@deepseek-ai/cordis` 4.0.5 → ~4.1.0 | `ctx.inject/effect/logger/plugin` 全在；用 4.1.0 单独跑了一次激活：路由与三个工具都注册成功 |
+| Node engine | 新版本要求 `node >= 24.9.0`（本机 24.16.0）；我们的 `engines.node: >=20` 是更宽的下限，不冲突 |
+
+### 6.3 隔离环境实测（决定性证据）
+
+做法：把 `@deepseek-ai/dsh@0.2.2-rc.1` 装到 `/tmp/jargon-compat/boot`，用独立的 `DSH_HOME`
+从 shipped web 模板建了 `compat` profile，`dsh plugin --profile compat add <本插件目录>`，
+然后 `dsh --profile compat --host 127.0.0.1 --port 3199 --no-open` 起服务。
+
+| 检查 | 结果 |
+| --- | --- |
+| 实例启动 | 起来并打印 URL（token 形式），未被本插件影响 |
+| 组合配置含本插件行 | `- id: jargon-list` / `name: '@tom2012/dsh-jargon-list'` |
+| `GET /`（带 cookie） | 200 |
+| `GET /-/jargon/state` | **401**（路由已挂载，鉴权拒绝未登录请求） |
+| `POST /-/jargon/mutate` | 401 |
+| `GET /-/definitely-not-there`（对照） | **404**（说明上面的 401 不是 catch-all，而是我们这条路由真的在） |
+| boot graph 中的 client 行 | `{"id":"@tom2012/dsh-jargon-list","url":"plugins/??…client.js&rev=cbaf74c5…","inject":["@deepseek-ai/dsh-client-ui-sidebar-right"],"immediately":true}` |
+| 取该 bundle | 200，31210 字节，内含 `__ModuleLoader__` 注册 |
+
+补充观察：该隔离安装里 `office-to-pdf` 因 pnpm 布局缺 `restructure` 没激活，dsh 只打印
+“1 entry did not activate” 警告并继续提供服务 —— 再次印证单行失败不会拖垮整机（与本插件无关）。
+
+### 6.4 未验证的部分
+
+- 没在 0.2.2-rc.1 的**真实浏览器页面**里点过页签（隔离实例只做了 HTTP 与 boot graph 层面的核对）：
+  页签的渲染与交互在 0.2.1-rc.5 的页面上验证过，0.2.2 的客户端席位声明与模块协议均未变，
+  但「肉眼一致」仍需在升级后确认。
+- `0.2.2-alpha.3`（alpha 通道）未测；只测了 `latest`/`next` 指向的 `0.2.2-rc.1`。

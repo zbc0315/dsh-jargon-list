@@ -39,7 +39,8 @@
     "verify": "npm run build && npm run check && npm test && node tools/check-package.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "dsh": ">=0.2.1-rc.5 <0.3.0-0"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

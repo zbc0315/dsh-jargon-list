@@ -30,6 +30,10 @@ assert.ok(
   'client inject must order activation after the right sidebar',
 )
 assert.ok(!manifest.dependencies?.react, 'React must stay host-provided')
+assert.ok(
+  typeof manifest.engines?.dsh === 'string' && manifest.engines.dsh.includes('<0.3.0-0'),
+  'engines.dsh must declare the tested DSH line',
+)
 for (const file of ['src', 'client/bundle.js', 'locale', 'icon.svg', 'cordis.patch.yml']) {
   assert.ok(
     manifest.files.some((entry) => entry === file || entry.startsWith(`${file}/`)),
