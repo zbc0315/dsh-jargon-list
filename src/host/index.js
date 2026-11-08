@@ -30,23 +30,50 @@ const inject = []
  * @param {object} [config]
  */
 function apply(ctx, config) {
-  const logger = typeof ctx.logger === 'function' ? ctx.logger(name) : null
-  const warn = (message) => {
-    const text = `[dsh-jargon-list] ${message}`
-    if (logger && typeof logger.warn === 'function') logger.warn(message)
-    else console.warn(text)
+  // 无论插件自己出什么问题，都不许把异常抛回 Loader：一个插件坏掉不该影响宿主启动。
+  // 真正的问题通过 warn 日志留痕，插件退化为“什么都不做”。
+  try {
+    const logger = typeof ctx.logger === 'function' ? ctx.logger(name) : null
+    const warn = (message) => {
+      try {
+        if (logger && typeof logger.warn === 'function') logger.warn(message)
+        else console.warn(`[dsh-jargon-list] ${message}`)
+      } catch {
+        /* 连日志都写不出去时保持安静 */
+      }
+    }
+
+    const store = new JargonStore(config && config.store ? config.store : undefined)
+
+    if (typeof ctx.inject !== 'function' || typeof ctx.effect !== 'function') {
+      warn('宿主上下文缺少 inject/effect，黑话单未启用')
+      return
+    }
+
+    // 浏览器半：没有 webServer/connection 的宿主（例如纯 CLI）就静默跳过这一半。
+    ctx.inject(['webServer', 'connection'], (scope) => {
+      try {
+        scope.effect(() => registerRoutes(scope, store, { warn }), 'jargon-list: routes')
+      } catch (error) {
+        warn(`注册 HTTP 路由失败：${(error && error.message) || error}`)
+      }
+    })
+
+    // agent 半：没有 tools 服务时同样跳过。
+    ctx.inject(['tools'], (scope) => {
+      try {
+        registerTools(scope, store, { warn })
+      } catch (error) {
+        warn(`注册工具失败：${(error && error.message) || error}`)
+      }
+    })
+  } catch (error) {
+    try {
+      console.warn(`[dsh-jargon-list] 插件启用失败（已忽略，不影响宿主）：${(error && error.message) || error}`)
+    } catch {
+      /* 什么都不做 */
+    }
   }
-  const store = new JargonStore(config && config.store ? config.store : undefined)
-
-  // 浏览器半：没有 webServer/connection 的宿主（例如纯 CLI）就静默跳过这一半。
-  ctx.inject(['webServer', 'connection'], (scope) => {
-    scope.effect(() => registerRoutes(scope, store, { warn }), 'jargon-list: routes')
-  })
-
-  // agent 半：没有 tools 服务时同样跳过。
-  ctx.inject(['tools'], (scope) => {
-    registerTools(scope, store, { warn })
-  })
 }
 
 module.exports = { name, inject, apply }

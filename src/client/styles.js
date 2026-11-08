@@ -278,6 +278,21 @@ const CSS = `
 }
 
 /* ---------- 空态 / 加载 ---------- */
+.jargon-crash {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+}
+.jargon-error-detail {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .jargon-empty {
   display: flex;
   flex-direction: column;

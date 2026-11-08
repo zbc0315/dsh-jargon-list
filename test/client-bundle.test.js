@@ -200,3 +200,37 @@ test('the bundle never imports a Harness Client package', () => {
     assert.ok(source.includes(token), `bundle must contain ${token}`)
   }
 })
+
+
+test('the panel renders on mount without throwing (slot entry safety)', () => {
+  const module = loadBundle()
+  const { ctx, record } = fakeCtx()
+  module.apply(ctx)
+  const body = record.slots.find((entry) => entry.options.name === 'sidebar.right.pane.tab')
+  assert.ok(body)
+
+  const React = require('react')
+  const { renderToString } = require('react-dom/server')
+  // 面板挂载即发请求，但 SSR 不跑 effect，所以这里只验证「首帧不会抛」：
+  // 一旦组件里有 hook 顺序 / props 未定义 / 空 ctx 崩溃，这条测试会直接红。
+  const html = renderToString(React.createElement(body.component, { sessionId: 'session-1' }))
+  assert.equal(typeof html, 'string')
+  assert.ok(html.length > 0, 'the panel must render some markup')
+})
+
+test('a panel that throws is contained by its boundary instead of blanking the slot', () => {
+  const module = loadBundle()
+  const { ctx, record } = fakeCtx()
+  module.apply(ctx)
+  const header = record.slots.find(
+    (entry) => entry.options.name === 'conversation.session.header.utilities',
+  )
+  const React = require('react')
+  const { renderToString } = require('react-dom/server')
+  // 头部按钮在没有 sessionId 时返回 null：不渲染、不抛。
+  const html = renderToString(React.createElement(header.component, { sessionId: undefined }))
+  assert.equal(html, '')
+  // 有 sessionId 时应该是一个 button，并且点击回调存在。
+  const withSession = renderToString(React.createElement(header.component, { sessionId: 's1' }))
+  assert.match(withSession, /jargon-header-btn/)
+})

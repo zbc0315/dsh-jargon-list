@@ -100,3 +100,29 @@ test('the store it exposes writes inside the given workspace only', async () => 
   assert.equal(state.file, path.join(dir, '.dsh', 'jargon.json'))
   assert.equal(state.terms[0].term, '三件套')
 })
+
+
+test('apply never throws, whatever the host context looks like', () => {
+  const hostile = [
+    {},
+    { logger() { throw new Error('logger exploded') } },
+    {
+      logger: () => ({ warn() { throw new Error('warn exploded') } }),
+      inject() { throw new Error('inject exploded') },
+      effect() {},
+    },
+    {
+      inject(_deps, callback) { callback({}) },
+      effect() { throw new Error('effect exploded') },
+      logger: () => ({ warn() {} }),
+    },
+    {
+      inject(_deps, callback) { callback({ tools: { register() { throw new Error('register exploded') } }, effect() {} }) },
+      effect(factory) { return factory() },
+      logger: () => ({ warn() {} }),
+    },
+  ]
+  for (const ctx of hostile) {
+    assert.doesNotThrow(() => host.apply(ctx, {}), `apply threw for ${JSON.stringify(Object.keys(ctx))}`)
+  }
+})

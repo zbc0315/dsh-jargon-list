@@ -11,7 +11,7 @@ const fsp = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
 
-const { handleRequest, resolveCwd, rejectionStatus, STATUS_BY_CODE } = require('../src/host/routes')
+const { handleRequest, resolveCwd, rejectionStatus, STATUS_BY_CODE, registerRoutes } = require('../src/host/routes')
 const { StoreError } = require('../src/host/store')
 
 const ORIGIN = 'http://jargon.invalid'
@@ -180,4 +180,90 @@ test('rejectionStatus normalizes the trust fence verdict', () => {
   assert.equal(rejectionStatus(401), 401)
   assert.equal(rejectionStatus(403), 403)
   assert.equal(rejectionStatus(true), 403)
+})
+
+
+test('an unparsable request URL is answered with 400 instead of throwing', async () => {
+  const response = await handleRequest({ method: 'GET', url: 'http://[bad', ctx: {}, store: makeStore(), readBody: async () => ({}) })
+  assert.equal(response.status, 400)
+  assert.equal(response.body.error.code, 'bad-request')
+})
+
+test('route registration never throws, even when the path is already taken', () => {
+  const ctx = {
+    webServer: {
+      register() {
+        throw new Error('duplicate route')
+      },
+    },
+    connection: { requestRejection: () => undefined },
+  }
+  let dispose
+  assert.doesNotThrow(() => {
+    dispose = registerRoutes(ctx, makeStore(), {})
+  })
+  assert.equal(typeof dispose, 'function')
+})
+
+test('the mounted handler answers with a JSON 500 instead of rejecting', async () => {
+  const dir = await tmpWorkspace()
+  let route
+  const ctx = {
+    webServer: {
+      register(value) {
+        route = value
+        return () => {}
+      },
+    },
+    connection: { requestRejection: () => undefined },
+  }
+  const store = makeStore({
+    async read() {
+      throw new Error('disk on fire')
+    },
+  })
+  registerRoutes(ctx, store, {})
+  assert.ok(route, 'the route must register')
+
+  const written = { status: 0, body: '' }
+  const res = {
+    headersSent: false,
+    writeHead(status) {
+      written.status = status
+      this.headersSent = true
+    },
+    end(buffer) {
+      written.body = buffer ? Buffer.from(buffer).toString('utf8') : ''
+    },
+  }
+  const req = { method: 'GET', url: `/-/jargon/state?cwd=${encodeURIComponent(dir)}`, headers: {} }
+
+  await assert.doesNotReject(() => route.handler(req, res))
+  assert.equal(written.status, 500)
+  const payload = JSON.parse(written.body)
+  assert.equal(payload.ok, false)
+  assert.equal(payload.error.code, 'io-error')
+})
+
+test('the mounted handler passes the trust fence verdict through', async () => {
+  let route
+  const ctx = {
+    webServer: { register: (value) => ((route = value), () => {}) },
+    connection: { requestRejection: () => 401 },
+  }
+  registerRoutes(ctx, makeStore(), {})
+  const res = {
+    statusCode: 200,
+    headersSent: false,
+    writeHead(status) {
+      this.statusCode = status
+      this.headersSent = true
+    },
+    end() {
+      this.ended = true
+    },
+  }
+  await route.handler({ method: 'GET', url: '/-/jargon/state', headers: {} }, res)
+  assert.equal(res.statusCode, 401)
+  assert.equal(res.ended, true)
 })

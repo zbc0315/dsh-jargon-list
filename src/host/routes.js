@@ -162,7 +162,12 @@ async function resolveCwd(ctx, input) {
  */
 async function handleRequest(input) {
   const { method, url, ctx, store, readBody } = input
-  const parsed = new URL(url || API_PREFIX, 'http://jargon.invalid')
+  let parsed
+  try {
+    parsed = new URL(typeof url === 'string' && url !== '' ? url : API_PREFIX, 'http://jargon.invalid')
+  } catch {
+    return fail('bad-request', `请求地址无法解析：${String(url).slice(0, 200)}`)
+  }
   const pathname = parsed.pathname.replace(/\/+$/, '') || '/'
   const verb = String(method || 'GET').toUpperCase()
 
@@ -326,9 +331,10 @@ function registerRoutes(ctx, store, options) {
     return () => {}
   }
 
-  return webServer.register({
-    kind: 'prefix',
-    path: API_PREFIX,
+  try {
+    return webServer.register({
+      kind: 'prefix',
+      path: API_PREFIX,
     handler: async (req, res) => {
       let rejection
       try {
@@ -351,16 +357,30 @@ function registerRoutes(ctx, store, options) {
         return
       }
 
-      const response = await handleRequest({
-        method: req.method,
-        url: req.url,
-        ctx,
-        store,
-        readBody: () => readJsonBody(req),
-      })
-      sendJsonSafe(res, response.status, response.body)
+      // 最后一道兜底：路由处理绝不允许把 rejection 交给 webserver（虽然它会 catch 并记日志，
+      // 但那样客户端只会拿到 400，且日志噪音掩盖真实原因）。这里统一成 500 + 结构化错误。
+      try {
+        const response = await handleRequest({
+          method: req.method,
+          url: req.url,
+          ctx,
+          store,
+          readBody: () => readJsonBody(req),
+        })
+        sendJsonSafe(res, response.status, response.body)
+      } catch (error) {
+        warn(`处理 ${String(req.method)} ${String(req.url)} 时出错：${(error && error.message) || error}`)
+        sendJsonSafe(res, 500, {
+          ok: false,
+          error: { code: 'io-error', message: `黑话单内部错误：${(error && error.message) || error}` },
+        })
+      }
     },
   })
+  } catch (error) {
+    warn(`注册 /-/jargon 路由失败：${(error && error.message) || error}`)
+    return () => {}
+  }
 }
 
 module.exports = {

@@ -8,7 +8,7 @@
  * 面板只认 slot 给的标准 props（`sessionId` / `t` / `useTabInfo`），不向宿主索要数据。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api, isAbortError } from './api.js'
 import { CloseIcon, PlusIcon, SearchIcon } from './icons.js'
@@ -169,7 +169,62 @@ function TermRow({ item, t, expanded, armed, deleting, onEdit, onDelete, onToggl
  * 页签体。
  * @param {object} props - slot 标准 props + `ctx`：`{ ctx, sessionId, t?, useTabInfo? }`。
  */
+/**
+ * 渲染降级边界：面板自己出 bug 时只坏这一个页签，而不是让 slot entry 整块变成空白。
+ *
+ * 宿主对抛错组件的处理是「把该 slot entry 崩掉」（console: slot entry crashed in '<slot>'），
+ * 不会影响应用外壳；这里再加一层，把它变成一条可读错误 + 「重试」，成本很低。
+ */
+class JargonBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+    this.retry = () => this.setState({ error: null })
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+
+  componentDidCatch(error) {
+    try {
+      console.error('[jargon-list] panel crashed', error)
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      const message = (this.state.error && this.state.error.message) || String(this.state.error)
+      return (
+        <div className="jargon-panel jargon-crash">
+          <div className="jargon-empty-title">{this.props.label}</div>
+          <div className="jargon-error-detail">{message}</div>
+          <button type="button" className="jargon-btn" onClick={this.retry}>
+            {this.props.retryLabel}
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export function JargonPanel(props) {
+  const { ctx } = props
+  const t = useT(ctx)
+  return (
+    <JargonBoundary
+      label={t('errorUnknown')}
+      retryLabel={t('retry')}
+    >
+      <JargonPanelBody {...props} />
+    </JargonBoundary>
+  )
+}
+
+function JargonPanelBody(props) {
   const { ctx, sessionId, useTabInfo } = props
   const ownT = useT(ctx)
   const t = typeof props.t === 'function' ? props.t : ownT
