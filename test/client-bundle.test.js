@@ -1,0 +1,202 @@
+'use strict'
+
+/**
+ * 构建产物冒烟：把真正要发给浏览器的 client/bundle.js 装进一个假 ModuleLoader，
+ * 用假 ctx 跑一遍 apply()，断言它注册了该注册的东西、且没有抛异常。
+ *
+ * 这条测试覆盖的是「打包后的产物」而不是 src，所以能抓住：
+ *   · 打包协议/外部模块（react、react/jsx-runtime）接错
+ *   · apply() 在宿主服务缺失时直接抛错
+ *   · 页签类型 / 页签体 / 头部入口 / locale 的注册形状漂移
+ */
+
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+const vm = require('node:vm')
+
+const BUNDLE = path.join(__dirname, '..', 'client', 'bundle.js')
+const PACKAGE_NAME = '@tom2012/dsh-jargon-list'
+
+/** 假 document：installStyles 只需要能挂一个 <style>。 */
+function fakeDocument() {
+  const head = {
+    children: [],
+    appendChild(node) {
+      this.children.push(node)
+      node.parentNode = this
+    },
+    append(node) {
+      this.appendChild(node)
+    },
+    prepend(node) {
+      this.children.unshift(node)
+    },
+  }
+  return {
+    head,
+    createElement: () => ({
+      textContent: '',
+      dataset: {},
+      setAttribute() {},
+      remove() {
+        const index = head.children.indexOf(this)
+        if (index >= 0) head.children.splice(index, 1)
+      },
+    }),
+    getElementById: () => null,
+    querySelector: () => null,
+  }
+}
+
+/** 把 bundle 装进假 ModuleLoader，返回它的导出（含 apply / inject）。 */
+function loadBundle(options = {}) {
+  const source = fs.readFileSync(BUNDLE, 'utf8')
+  let entry
+  const sandbox = {
+    window: { __ModuleLoader__: { load: (value) => { entry = value } } },
+    document: options.document || fakeDocument(),
+    console,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+  }
+  sandbox.globalThis = sandbox
+  vm.runInNewContext(source, sandbox, { filename: 'client/bundle.js' })
+  assert.ok(entry, 'the bundle must call window.__ModuleLoader__.load')
+  assert.equal(entry.id, PACKAGE_NAME)
+
+  const modules = {
+    react: require('react'),
+    'react/jsx-runtime': require('react/jsx-runtime'),
+    'react-dom': require('react-dom'),
+    'react-dom/client': require('react-dom/client'),
+  }
+  const requireShim = (id) => {
+    if (!(id in modules)) throw new Error(`bundle required an unexpected module: ${id}`)
+    return modules[id]
+  }
+  return entry.factory(requireShim)
+}
+
+/** 假 Client ctx，记录每次注册。 */
+function fakeCtx({ withSidebar = true } = {}) {
+  const record = { effects: [], slots: [], tabs: [], locales: [], injected: [] }
+  const services = {
+    slots: {
+      inject: (name, callback) => {
+        record.injected.push(name)
+        return callback()
+      },
+      register: (options, component) => {
+        record.slots.push({ options, component })
+        return () => {}
+      },
+    },
+    sidebarRight: { openTab: (kind) => record.opened = kind },
+    locale: {
+      register: (ns, dicts) => {
+        record.locales.push({ ns, dicts })
+        return () => {}
+      },
+      bind: (ns) => (key) => `[${ns}]${key}`,
+      getSnapshot: () => ({ locale: 'zh' }),
+      getLocale: () => ({ locale: 'zh' }),
+      subscribe: () => () => {},
+    },
+  }
+  if (withSidebar) {
+    services.sidebarRightTabs = {
+      register: (definition) => {
+        record.tabs.push(definition)
+        return () => {}
+      },
+    }
+  }
+  const ctx = {
+    effect: (factory, label) => {
+      record.effects.push(label)
+      const dispose = factory()
+      return typeof dispose === 'function' ? dispose : () => {}
+    },
+    get: (name) => services[name],
+    slots: {
+      inject: (name, callback) => {
+        record.injected.push(name)
+        return callback()
+      },
+      register: (options, component) => {
+        record.slots.push({ options, component })
+        return () => {}
+      },
+    },
+  }
+  if (withSidebar) ctx.sidebarRightTabs = services.sidebarRightTabs
+  ctx.locale = services.locale
+  return { ctx, record }
+}
+
+test('the built bundle exposes the Cordis client shape', () => {
+  const module = loadBundle()
+  assert.equal(typeof module.apply, 'function')
+  assert.deepEqual(Array.from(module.inject), ['slots'])
+})
+
+test('apply registers the tab type, body, header entry and copy', () => {
+  const module = loadBundle()
+  const { ctx, record } = fakeCtx()
+  module.apply(ctx)
+
+  const type = record.tabs.find((entry) => entry.id === PACKAGE_NAME)
+  assert.ok(type, 'the tab type must register under the package name')
+  assert.equal(type.kind, 'jargon')
+  assert.equal(typeof type.title, 'function')
+  assert.equal(typeof type.title(), 'string')
+  assert.ok(Array.isArray(type.guide) && type.guide.length >= 1)
+  const guide = type.guide[0]
+  assert.equal(typeof guide.title, 'function')
+  assert.equal(typeof guide.title(), 'string')
+  assert.ok(guide.order > 0)
+  assert.equal(typeof guide.icon, 'function')
+
+  const body = record.slots.find((entry) => entry.options.name === 'sidebar.right.pane.tab')
+  assert.ok(body, 'the tab body must register into sidebar.right.pane.tab')
+  assert.equal(body.options.key, PACKAGE_NAME)
+  assert.equal(body.options.locale, 'jargonList')
+  assert.equal(typeof body.options.inject, 'function')
+  assert.deepEqual({ ...body.options.inject('session-1') }, { sessionId: 'session-1' })
+  assert.equal(typeof body.component, 'function')
+
+  const header = record.slots.find(
+    (entry) => entry.options.name === 'conversation.session.header.utilities',
+  )
+  assert.ok(header, 'the session header entry must register')
+  assert.ok(header.options.id)
+  assert.equal(typeof header.component, 'function')
+
+  const copy = record.locales.find((entry) => entry.ns === 'jargonList')
+  assert.ok(copy, 'the jargonList locale namespace must register')
+  for (const locale of ['zh', 'en']) {
+    assert.ok(copy.dicts[locale], `missing ${locale} dictionary`)
+    assert.equal(typeof copy.dicts[locale].title, 'string')
+    assert.equal(typeof copy.dicts[locale].save, 'string')
+  }
+})
+
+test('apply survives a host without the right sidebar', () => {
+  const module = loadBundle()
+  const { ctx } = fakeCtx({ withSidebar: false })
+  assert.doesNotThrow(() => module.apply(ctx))
+})
+
+test('the bundle never imports a Harness Client package', () => {
+  const source = fs.readFileSync(BUNDLE, 'utf8')
+  for (const forbidden of ['dsh-client-ui-primitives', '@deepseek-ai/dsh-client-ui-']) {
+    assert.ok(!source.includes(forbidden), `bundle must not reference ${forbidden}`)
+  }
+  for (const token of ['sidebar.right.pane.tab', 'sidebarRightTabs', 'jargonList', 'conversation.session.header.utilities']) {
+    assert.ok(source.includes(token), `bundle must contain ${token}`)
+  }
+})

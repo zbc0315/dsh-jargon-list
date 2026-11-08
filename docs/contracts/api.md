@@ -123,6 +123,13 @@
 | `meta.title`（locale/{zh,en}.json） | 黑话单 | Jargon List |
 | `meta.description`（locale/{zh,en}.json） | 记录本项目里临时起的简称（黑话）及其详细含义，供人和 agent 查询、增删改。 | Records project-local shorthand names and what they mean, editable by user and agent. |
 
+### 3.1 实现可以增加的键
+
+契约 §3 的 20 个键是**必需**的；实现可以增加额外键（例如错误码到文案的映射键
+`errorCorrupt`/`errorDuplicateTerm`…、时间行 `metaBy`、`byAgent`/`byUser`、`saving`、
+`noResults`/`clearSearch`）。增加的键中英必须同时存在，且不得改变已列键的语义。
+当前实现共 38 键（`src/client/i18n.js`），键集由 `test/client-bundle.test.js` 校验与契约必需键对齐。
+
 ## 4. 错误码 → 界面文案
 
 界面按 `error.code` 取文案；未知 code 直接显示 `message`。
