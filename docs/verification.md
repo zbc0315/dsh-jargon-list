@@ -258,7 +258,13 @@ semver.satisfies(runtimeVersion, range, { includePrerelease: true })
      `0.0.0-stage` 的旧 packument，一度误判“发布没成功”。加 `Cache-Control: no-cache`
      与查询串 cache-buster 后读到 `versions: [0.0.0-stage, 0.1.1, 0.1.0]`。
      结论：核对发布结果要以**带 no-cache 的版本化请求**或 `npm pack` 实测为准。
-- GitHub：本机 `gh` 未安装、无 PAT、`github.com:443` 从本机不可达、`id_ed25519` 未在 GitHub 授权，
-  因此**未推送**。仓库已准备就绪：`main` 分支、作者统一为 `zbc0315 <zhangbc0315@outlook.com>`、
-  注解 tag `v0.1.1`、`origin` 指向 `git@github.com:zbc0315/dsh-jargon-list.git`。
-  推送步骤见交付说明（可用 `ssh.github.com:443` 绕过 22 端口封锁）。
+- GitHub：已发布 <https://github.com/zbc0315/dsh-jargon-list>（public，default branch `main`，
+  11 个提交、注解 tag `v0.1.1`、release 页已建、topics 已加）。
+  作者已统一为 `zbc0315 <zhangbc0315@outlook.com>`。
+- **本机无法 `git push`**：到 `github.com:443` 的 git 通道被挡（TLS 能握手，但 HTTP 层拿不到响应，
+  `git push` 75s 连接超时；同机 `api.github.com` 正常）。因此历史是用 `tools/push-via-api.mjs`
+  走 GitHub Git Data API 落的：逐提交上传 blob/tree/commit，最后建 ref。
+  验收证据：远端 HEAD 与本地**逐字节相同**（`0abbe91db832a670aefffb780265eac4e09abae2`），
+  11 个提交的 tree sha 全部与本地一致（mismatch 0），即对象完全等价，不是“近似重建”。
+  后续在本机继续更新时同样可以 `node tools/push-via-api.mjs zbc0315/dsh-jargon-list "$(gh auth token)"`
+  （脚本会从远端 HEAD 起增量补提交）；网络恢复后普通 `git push` 也能用。

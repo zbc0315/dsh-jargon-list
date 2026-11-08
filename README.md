@@ -112,6 +112,15 @@ git tag "v$(node -p "require('./package.json').version")"
 
 # 3. 发布
 npm publish --access public
+
+# 4. 推 GitHub（网络正常时）
+git push origin main --tags
+```
+
+本机到 `github.com:443` 的 git 通道被挡时，用 `tools/push-via-api.mjs` 走 Git Data API 落历史：
+
+```bash
+node tools/push-via-api.mjs zbc0315/dsh-jargon-list "$(gh auth token)"
 ```
 
 注意：npm 已 GA **staged publishing**。部分账号第一次发布会先在 registry 里出现一个
