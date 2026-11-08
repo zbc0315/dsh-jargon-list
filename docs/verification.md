@@ -222,3 +222,22 @@ client 半进了 boot graph 并被成功下发。`engines.dsh` 现在声明为 `
   页签的渲染与交互在 0.2.1-rc.5 的页面上验证过，0.2.2 的客户端席位声明与模块协议均未变，
   但「肉眼一致」仍需在升级后确认。
 - `0.2.2-alpha.3`（alpha 通道）未测；只测了 `latest`/`next` 指向的 `0.2.2-rc.1`。
+
+### 6.5 `engines.dsh` 的语义与实测（补记）
+
+`dsh-app-boot` 的 `unmetRequirements` / `satisfies` 决定这件事（0.2.1-rc.5 与 0.2.2-rc.1 实现逐字相同）：
+
+```js
+semver.satisfies(runtimeVersion, range, { includePrerelease: true })
+```
+
+- **预发布版本参与匹配**（`includePrerelease: true`），所以 `>=0.2.1-rc.5 <0.3.0-0`
+  同时接受 `0.2.1-rc.5`、`0.2.2-rc.1`、`0.2.2-alpha.3`（默认 semver 语义下 `0.2.2-rc.1` 会被判 false，
+  这里不会，已实测确认）；
+- 一旦声明了 `engines.dsh`，它**独自决定**，`peerDependencies` 里的 `@deepseek-ai/dsh*` 不再参与判定；
+- 不满足时会**阻止安装与激活**（可用 exemption 机制按精确 `name@version` + 运行时版本放行）。
+
+实测：把 `engines.dsh` 写进 `package.json` 后，在隔离的 `0.2.2-rc.1` 上重新起服务，
+`/-/jargon/state` 仍为 401、对照路径 404 —— 说明该 range 在新版本上**没有**误伤本插件。
+
+含义：`0.3.x` 之后会被有意挡在外面（未测过的线），届时要么升级并重新验证，要么加 exemption。
