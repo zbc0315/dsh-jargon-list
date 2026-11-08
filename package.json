@@ -1,9 +1,33 @@
 {
   "name": "@tom2012/dsh-jargon-list",
   "version": "0.1.0",
-  "private": true,
   "description": "黑话单：记录本项目里临时起的简称（黑话）及其详细含义，人和 agent 共用一份；右侧栏页签浏览、增删改查。",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "jargon",
+    "glossary",
+    "black-talk",
+    "黑话",
+    "简称"
+  ],
+  "author": {
+    "name": "zbc0315"
+  },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zbc0315/dsh-jargon-list.git"
+  },
+  "homepage": "https://github.com/zbc0315/dsh-jargon-list#readme",
+  "bugs": {
+    "url": "https://github.com/zbc0315/dsh-jargon-list/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "main": "src/host/index.js",
   "exports": {
     ".": "./src/host/index.js",
@@ -18,7 +42,8 @@
     "locale",
     "icon.svg",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
