@@ -99,6 +99,26 @@ docs/         设计稿、实施计划、接口契约、验证记录
 设计与决策见 `docs/superpowers/specs/2026-11-08-jargon-list-design.md`，
 接口契约见 `docs/contracts/api.md`。
 
+## 发布（维护者）
+
+```bash
+# 1. 改版本、跑验证
+npm version patch --no-git-tag-version     # 或 minor / major
+npm run verify
+
+# 2. 提交并打 tag
+git commit -am "chore: release $(node -p "require('./package.json').version")"
+git tag "v$(node -p "require('./package.json').version")"
+
+# 3. 发布
+npm publish --access public
+```
+
+注意：npm 已 GA **staged publishing**。部分账号第一次发布会先在 registry 里出现一个
+`0.0.0-stage` 占位版本（“Temporary package placeholder for staged publishing”）；如果账号被要求审核，
+发布会进入 stage 队列，需要维护者用 2FA 在 npmjs.com 或 `npm stage approve <stage-id>`
+（npm CLI **≥ 11.15**）批准后才会对外可安装。
+
 ## 许可
 
 MIT。验证记录、设计稿、接口契约都在 `docs/` 里（不随 npm 包发布，仓库里可读）。

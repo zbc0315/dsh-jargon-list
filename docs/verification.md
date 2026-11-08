@@ -241,3 +241,24 @@ semver.satisfies(runtimeVersion, range, { includePrerelease: true })
 `/-/jargon/state` 仍为 401、对照路径 404 —— 说明该 range 在新版本上**没有**误伤本插件。
 
 含义：`0.3.x` 之后会被有意挡在外面（未测过的线），届时要么升级并重新验证，要么加 exemption。
+
+
+## 7. 发布记录（2026-11-08）
+
+- npm：`@tom2012/dsh-jargon-list` 已发布 `0.1.0` 与 `0.1.1`，`latest = 0.1.1`。
+  从 registry 重新 `npm pack` 下来校验：tarball `shasum` 与发布输出一致
+  （`0718a5569cf85945e05f60f99489c0e9dffeac0e`），内容为 20 个文件 / 42.1 kB，
+  解包后 `require('src/host/index.js')` 正常导出 `{ name, inject, apply }`，
+  `client/bundle.js` 通过 `node --check`。
+- 过程中发现的两件事，值得记下来：
+  1. **staged publishing 占位版本**：首次发布会先在 registry 留下一个
+     `0.0.0-stage`（描述为 “Temporary package placeholder for staged publishing”），
+     真实版本随后正常发布；`dist-tags.latest` 指向真实版本。
+  2. **registry 读可能命中旧缓存**：第一次用 `npm view` / 未加缓存头的 curl 读到的是只有
+     `0.0.0-stage` 的旧 packument，一度误判“发布没成功”。加 `Cache-Control: no-cache`
+     与查询串 cache-buster 后读到 `versions: [0.0.0-stage, 0.1.1, 0.1.0]`。
+     结论：核对发布结果要以**带 no-cache 的版本化请求**或 `npm pack` 实测为准。
+- GitHub：本机 `gh` 未安装、无 PAT、`github.com:443` 从本机不可达、`id_ed25519` 未在 GitHub 授权，
+  因此**未推送**。仓库已准备就绪：`main` 分支、作者统一为 `zbc0315 <zhangbc0315@outlook.com>`、
+  注解 tag `v0.1.1`、`origin` 指向 `git@github.com:zbc0315/dsh-jargon-list.git`。
+  推送步骤见交付说明（可用 `ssh.github.com:443` 绕过 22 端口封锁）。
