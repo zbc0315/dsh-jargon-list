@@ -91,27 +91,38 @@ async function ensureBranch() {
   return true
 }
 
+async function remoteHead() {
+  const res = await fetch(`${API}/repos/${repo}/git/ref/heads/main`, { headers })
+  if (!res.ok) return null
+  const json = await res.json()
+  return json.object.sha
+}
+
 async function main() {
   const initialized = await ensureBranch()
   const commits = readCommits()
-  console.log(`commits: ${commits.length}`)
+  const head0 = await remoteHead()
+  const start = head0 ? commits.findIndex((c) => c.sha === head0) + 1 : 0
+  if (head0 && start === 0) throw new Error(`远端 HEAD ${head0} 不在本地历史里，需要人工处理`)
+  console.log(`commits: ${commits.length}, remote head: ${head0 ? head0.slice(0, 8) : '(none)'}, to push: ${commits.length - start}`)
 
   const shaMap = new Map() // local commit sha -> remote commit sha
   const treeMismatch = []
 
-  for (const [index, commit] of commits.entries()) {
+  for (const [index, commit] of commits.slice(start).entries()) {
     const entries = readTree(commit.sha)
     const treeEntries = []
     for (const entry of entries) {
       if (entry.type !== 'blob') throw new Error(`unsupported tree entry type ${entry.type} at ${entry.path}`)
       treeEntries.push({ path: entry.path, mode: entry.mode, type: 'blob', sha: await uploadBlob(entry.sha) })
     }
-    const tree = await api('POST', `/repos/${repo}/git/trees`, { tree: treeEntries })
+    const parentTree = commit.parents.length ? git('rev-parse', `${commit.parents[0]}^{tree}`).trim() : undefined
+    const tree = await api('POST', `/repos/${repo}/git/trees`, { tree: treeEntries, ...(parentTree ? { base_tree: parentTree } : {}) })
 
     const localTree = git('rev-parse', `${commit.sha}^{tree}`).trim()
     if (tree.sha !== localTree) treeMismatch.push({ commit: commit.sha, local: localTree, remote: tree.sha })
 
-    const parents = commit.parents.map((parent) => shaMap.get(parent)).filter(Boolean)
+    const parents = commit.parents.map((parent) => shaMap.get(parent) || parent)
     const created = await api('POST', `/repos/${repo}/git/commits`, {
       message: commit.message,
       tree: tree.sha,
@@ -120,13 +131,14 @@ async function main() {
       committer: { name: commit.cn, email: commit.ce, date: commit.cI },
     })
     shaMap.set(commit.sha, created.sha)
-    console.log(`  [${index + 1}/${commits.length}] ${commit.sha.slice(0, 8)} -> ${created.sha.slice(0, 8)} tree ${tree.sha === localTree ? 'match' : 'MISMATCH'} · ${commit.message.split('\n')[0].slice(0, 60)}`)
+    console.log(`  [${index + 1}/${commits.length - start}] ${commit.sha.slice(0, 8)} -> ${created.sha.slice(0, 8)} tree ${tree.sha === localTree ? 'match' : 'MISMATCH'} · ${commit.message.split('\n')[0].slice(0, 60)}`)
   }
 
-  const headRemote = shaMap.get(commits[commits.length - 1].sha)
-  if (initialized) {
-    // 占位提交只是为了让空仓库有分支；历史建好后直接把 main 指到真实 HEAD。
-    await api('PATCH', `/repos/${repo}/git/refs/heads/main`, { sha: headRemote, force: true })
+  const last = commits[commits.length - 1]
+  const headRemote = shaMap.get(last.sha) || last.sha
+  if (head0) {
+    // 快进到新 HEAD（本地提交 sha 与远端一致时这就是同一对象，无需 force）。
+    if (headRemote !== head0) await api('PATCH', `/repos/${repo}/git/refs/heads/main`, { sha: headRemote, force: true })
   } else {
     await api('POST', `/repos/${repo}/git/refs`, { ref: 'refs/heads/main', sha: headRemote })
   }

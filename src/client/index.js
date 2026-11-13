@@ -101,67 +101,82 @@ export function apply(ctx) {
   const t = (key, params) => bindT(ctx)(key, params)
 
   ctx.effect(() => installStyles(), 'jargon-list: styles')
-  ctx.effect(() => registerLocales(ctx), 'jargon-list: copy')
 
-  // 右侧栏是可选席位：宿主没有 sidebarRightTabs 时（例如精简客户端）静默跳过这一半，
-  // 不能因为缺一个服务就让整个插件的 apply 抛错。
-  const tabs = service(ctx, 'sidebarRightTabs')
-  if (!tabs || typeof tabs.register !== 'function') return
-  const slots = service(ctx, 'slots')
-  if (!slots || typeof slots.inject !== 'function') return
+  // `locale` 和 `sidebarRightTabs` 一样是别的插件稍后才 provide 的服务；
+  // 快照式取用会让字典注册静默丢失（面板靠内置退化字典才看着正常）。
+  ctx.inject(['locale'], (scope) => {
+    scope.effect(() => registerLocales(scope), 'jargon-list: copy')
+  })
 
-  // 页签类型：只有类型、不声明 resource patterns；guide 里一条入口，openTab('jargon') 就打开它。
-  ctx.effect(
-    () =>
-      tabs.register({
-        id: TAB_ID,
-        kind: TAB_KIND,
-        priority: 'extension',
-        title: () => t('title'),
-        guide: [
-          {
-            id: 'open',
-            order: 45,
-            title: () => t('title'),
-            description: () => t('guideDescription'),
-            icon: JargonIcon,
-          },
-        ],
-      }),
-    'jargon-list: right tab type',
-  )
+  // 右侧栏相关注册必须**等**服务就绪。
+  //
+  // `sidebarRightTabs` 是右侧栏插件在自己 apply 末尾才 provide 的；本插件的 apply 完全可能
+  // 先跑（DSH 0.2.2 上就会）。0.1.1 里「取一次服务快照，取不到就 return」的写法因此会静默
+  // 丢掉页签类型 + 页签体 + 头部入口——这正是 0.2.2 上升级后「右侧栏黑话单入口消失」的原因。
+  // 官方写法是 ctx.inject(deps, cb)：服务晚到也会在到齐后回调一次。
+  ctx.inject(['slots', 'sidebarRightTabs'], (scope) => {
+    const tabs = scope.sidebarRightTabs
+    const slots = scope.slots
+    if (!tabs || typeof tabs.register !== 'function') return
+    if (!slots || typeof slots.inject !== 'function') return
 
-  // 页签体：keyed 席位，sessionId 由 inject 注入，面板自己取数据。
-  ctx.effect(
-    () =>
-      slots.inject('sidebar.right.pane.tab', () =>
-        slots.register(
-          {
-            name: 'sidebar.right.pane.tab',
-            key: TAB_ID,
-            locale: LOCALE_NS,
-            inject: (sessionId) => ({ sessionId }),
-          },
-          (props) => <JargonPanel ctx={ctx} {...props} />,
+    // 页签类型：只有类型、不声明 resource patterns；guide 里一条入口，openTab('jargon') 就打开它。
+    scope.effect(
+      () =>
+        tabs.register({
+          id: TAB_ID,
+          kind: TAB_KIND,
+          priority: 'extension',
+          title: () => t('title'),
+          guide: [
+            {
+              id: 'open',
+              order: 45,
+              title: () => t('title'),
+              description: () => t('guideDescription'),
+              icon: JargonIcon,
+            },
+          ],
+        }),
+      'jargon-list: right tab type',
+    )
+
+    // 页签体：keyed 席位，sessionId 由 inject 注入，面板自己取数据。
+    scope.effect(
+      () =>
+        slots.inject('sidebar.right.pane.tab', () =>
+          slots.register(
+            {
+              name: 'sidebar.right.pane.tab',
+              key: TAB_ID,
+              locale: LOCALE_NS,
+              inject: (sessionId) => ({ sessionId }),
+            },
+            (props) => <JargonPanel ctx={ctx} {...props} />,
+          ),
         ),
-      ),
-    'jargon-list: right tab body',
-  )
+      'jargon-list: right tab body',
+    )
+  })
 
-  // 会话头部入口：紧凑图标按钮，点开同一个页签。
-  ctx.effect(
-    () =>
-      slots.inject('conversation.session.header.utilities', () =>
-        slots.register(
-          {
-            name: 'conversation.session.header.utilities',
-            id: HEADER_ENTRY_ID,
-            order: -20,
-            locale: LOCALE_NS,
-          },
-          (props) => <HeaderJargonButton ctx={ctx} {...props} />,
+  // 会话头部入口只依赖 slots，不该被右侧栏服务的可用性牵连。
+  ctx.inject(['slots'], (scope) => {
+    const slots = scope.slots
+    if (!slots || typeof slots.inject !== 'function') return
+    scope.effect(
+      () =>
+        slots.inject('conversation.session.header.utilities', () =>
+          slots.register(
+            {
+              name: 'conversation.session.header.utilities',
+              id: HEADER_ENTRY_ID,
+              order: -20,
+              locale: LOCALE_NS,
+            },
+            (props) => <HeaderJargonButton ctx={ctx} {...props} />,
+          ),
         ),
-      ),
-    'jargon-list: session header entry',
-  )
+      'jargon-list: session header entry',
+    )
+  })
 }

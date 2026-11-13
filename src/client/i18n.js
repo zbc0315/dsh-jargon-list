@@ -117,11 +117,18 @@ export const DICTS = { zh: ZH, en: EN }
 /** 取一个服务；拿不到（或访问抛错）时返回 undefined，绝不抛。 */
 function service(ctx, name) {
   try {
-    if (ctx && typeof ctx.get === 'function') return ctx.get(name)
+    if (ctx && typeof ctx.get === 'function') {
+      const found = ctx.get(name)
+      if (found !== undefined) return found
+    }
   } catch {
     /* 服务不在作用域里就退化 */
   }
-  return undefined
+  try {
+    return ctx ? ctx[name] : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /** 当前语言（仅在拿不到宿主 locale 服务时用于退化）。 */

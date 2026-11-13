@@ -268,3 +268,47 @@ semver.satisfies(runtimeVersion, range, { includePrerelease: true })
   11 个提交的 tree sha 全部与本地一致（mismatch 0），即对象完全等价，不是“近似重建”。
   后续在本机继续更新时同样可以 `node tools/push-via-api.mjs zbc0315/dsh-jargon-list "$(gh auth token)"`
   （脚本会从远端 HEAD 起增量补提交）；网络恢复后普通 `git push` 也能用。
+
+
+## 8. DSH 0.2.2 上升级后右侧栏入口消失（0.1.2 修复）
+
+**症状**：DSH 从 `0.2.1-rc.5` 升到 `0.2.2-rc.1` 后，右侧栏指南里没有「黑话单」，会话标题栏的图标也没了；
+没有任何报错提示。host 半正常（`/-/jargon/state` 仍是 401）。
+
+**证据链**（都在真实页面上取的）：
+
+| 检查 | 结果 | 说明 |
+| --- | --- | --- |
+| 插件是否在 boot graph | 在，`immediately: true`，bundle 200 / 30,593 B | 不是没下发 |
+| bundle 是否执行过 | 页面里有我们注入的 `<style>`（9.3 KB、含 `.jargon-panel`） | `apply()` 确实跑了 |
+| `sidebar.right.pane.tab` occupants | 没有 `@tom2012/dsh-jargon-list` | 注册没发生 |
+| `.jargon-header-btn` | 0 个 | 头部入口也没注册 |
+| 0.2.2 的 `sidebarRightTabs` 来源 | 右侧栏插件在自己 `apply` 末尾 `ctx.reflect.provide(...)` | 谁先 apply 决定服务在不在 |
+
+**根因**：0.1.1 里为了“缺服务时不崩”，把 `apply` 写成了「取一次服务快照，取不到就 `return`」。
+`sidebarRightTabs` 由右侧栏插件稍后提供，而在 0.2.2 的激活顺序下本插件先 `apply` —— 于是
+**静默 return，后面所有注册（页签类型、页签体、头部入口）一个都没执行**。
+0.2.1 上只是碰巧顺序没踩到；这也解释了为什么没有任何错误：不是异常，是提前退出。
+
+`locale` 也是同一类服务，字典注册同样被跳过；面板之所以还能显示中文，是因为 `i18n.js` 里带了
+内置退化字典，掩盖了问题。
+
+**修复**（0.1.2）：
+
+1. 页签类型 + 页签体放进 `ctx.inject(['slots', 'sidebarRightTabs'], cb)`：服务晚到也会在到齐后回调；
+2. 会话头部入口改成只依赖 `['slots']`，不再被右侧栏服务的可用性牵连；
+3. `locale` 字典注册同样改为 `ctx.inject(['locale'], cb)`；
+4. `i18n.js` 的 `service()` 与 `index.js` 对齐（`ctx.get` 拿不到时退化为属性访问）；
+5. 新增回归测试「registrations wait for sidebarRightTabs instead of being skipped」：
+   apply 时服务缺席 → 断言此时不注册、但 `ctx.inject` 已排队；服务到达后回调 → 页签类型、页签体、
+   头部入口全部注册。另断言 `locale` 也在等待列表里。
+
+**验证**（页面实测，刷新后）：
+
+- 会话标题栏出现「打开黑话单」按钮（点击可开）；
+- 右侧栏 tab 条出现「黑话单」chip，选中后 `.jargon-panel` 挂载；
+- 面板文案为 `还没有黑话 / 点右上角「新增」，或让 agent 用 jargon_save 记一条。`（本项目尚未记录黑话）；
+- `npm run verify`：83 / 83 测试通过，清单自检 OK。
+
+**教训**：插件里对“可能晚到的服务”一律用 `ctx.inject(deps, cb)` 等，不要用一次性快照 + 早退；
+早退会变成“静默不工作”，比抛错更难查。

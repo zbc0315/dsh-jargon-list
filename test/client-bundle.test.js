@@ -83,7 +83,7 @@ function loadBundle(options = {}) {
 
 /** 假 Client ctx，记录每次注册。 */
 function fakeCtx({ withSidebar = true } = {}) {
-  const record = { effects: [], slots: [], tabs: [], locales: [], injected: [] }
+  const record = { effects: [], slots: [], tabs: [], locales: [], injected: [], ctxInject: [] }
   const services = {
     slots: {
       inject: (name, callback) => {
@@ -115,7 +115,25 @@ function fakeCtx({ withSidebar = true } = {}) {
       },
     }
   }
+  const makeEffect = () => (factory, label) => {
+    record.effects.push(label)
+    const dispose = factory()
+    return typeof dispose === 'function' ? dispose : () => {}
+  }
+  const scopeFor = () => ({
+    effect: makeEffect(),
+    slots: services.slots,
+    sidebarRight: services.sidebarRight,
+    locale: services.locale,
+    ...(withSidebar ? { sidebarRightTabs: services.sidebarRightTabs } : {}),
+  })
   const ctx = {
+    inject: (deps, callback) => {
+      record.ctxInject.push(deps.join(','))
+      const scope = scopeFor()
+      if (deps.every((dep) => scope[dep] !== undefined)) callback(scope)
+      return () => {}
+    },
     effect: (factory, label) => {
       record.effects.push(label)
       const dispose = factory()
@@ -233,4 +251,59 @@ test('a panel that throws is contained by its boundary instead of blanking the s
   // 有 sessionId 时应该是一个 button，并且点击回调存在。
   const withSession = renderToString(React.createElement(header.component, { sessionId: 's1' }))
   assert.match(withSession, /jargon-header-btn/)
+})
+
+
+/** apply 时服务还没就绪的假 ctx：ctx.inject 只排队，不回调。 */
+function fakeCtxDeferred() {
+  const record = { slots: [], tabs: [], locales: [], effects: [], ctxInject: [], pending: [] }
+  const ctx = {
+    inject: (deps, callback) => {
+      record.ctxInject.push(deps.join(','))
+      record.pending.push({ deps, callback })
+      return () => {}
+    },
+    effect: (factory) => {
+      const dispose = factory()
+      return typeof dispose === 'function' ? dispose : () => {}
+    },
+    get: () => undefined,
+  }
+  return { ctx, record }
+}
+
+test('registrations wait for sidebarRightTabs instead of being skipped (0.2.2 regression)', () => {
+  const module = loadBundle()
+  const { ctx, record } = fakeCtxDeferred()
+  module.apply(ctx)
+
+  // 关键点：服务没到之前，什么都不注册，但也**不能**因为取不到服务就永久放弃。
+  assert.deepEqual(record.tabs, [])
+  assert.deepEqual(record.slots, [])
+  assert.ok(record.ctxInject.some((deps) => deps.includes('sidebarRightTabs')), 'must wait for sidebarRightTabs via ctx.inject')
+  assert.ok(record.ctxInject.some((deps) => deps === 'locale'), 'must wait for the locale service too')
+
+  // 右侧栏插件稍后 provide 了服务：排队的回调被调用，注册应全部发生。
+  const sidebarScope = {
+    locale: { register: (ns) => (record.locales.push({ ns }), () => {}), bind: () => (k) => k, getSnapshot: () => ({ locale: 'zh' }), subscribe: () => () => {} },
+    effect: (factory) => {
+      const dispose = factory()
+      return typeof dispose === 'function' ? dispose : () => {}
+    },
+    slots: {
+      inject: (_name, callback) => callback(),
+      register: (options) => (record.slots.push({ options }), () => {}),
+    },
+    sidebarRightTabs: { register: (definition) => (record.tabs.push(definition), () => {}) },
+  }
+  for (const pending of record.pending) {
+    if (pending.deps.every((dep) => sidebarScope[dep] !== undefined)) pending.callback(sidebarScope)
+  }
+
+  assert.equal(record.tabs.length, 1, 'tab type must register once the service arrives')
+  assert.equal(record.tabs[0].kind, 'jargon')
+  const body = record.slots.find((entry) => entry.options.name === 'sidebar.right.pane.tab')
+  assert.ok(body, 'tab body must register once the service arrives')
+  const header = record.slots.find((entry) => entry.options.name === 'conversation.session.header.utilities')
+  assert.ok(header, 'header entry must register independently of the sidebar service')
 })
