@@ -312,3 +312,63 @@ semver.satisfies(runtimeVersion, range, { includePrerelease: true })
 
 **教训**：插件里对“可能晚到的服务”一律用 `ctx.inject(deps, cb)` 等，不要用一次性快照 + 早退；
 早退会变成“静默不工作”，比抛错更难查。
+
+## 9. 提示词半 A+B（0.1.3）：让 agent 真的写、也让写过的被读到
+
+**症状**：0.1.1/0.1.2 装了 5 天，18 个工作区全是空的，agent 一次都没主动调过 `jargon_save`。
+
+**为什么**：按第一轮的设计取舍是"只给工具、不注入提示词"。而 `jargon_save` 是元行为——
+不产生任务产出、不做也不报错，模型的工具选择由任务需求驱动，不会主动想到"我刚起了一个简称，该记一下"。
+工具描述只有被主动阅读时才生效。
+
+**方案（两段）**：
+
+- **A 固定指令**：`systemPrompt.section({ name: 'ui:jargon-list', order: 3050, interpolate: false, text: INSTRUCTION })`，
+  约 690 字符 / ≈170 token，常驻。内容：起简称就立刻 `jargon_save`（写步骤/范围/产出，不写词典释义）、
+  遇到陌生简称先 `jargon_list`、别记人人皆知的术语与一次性文件名。
+- **B 已有条目**：`systemPrompt.context({ name: 'jargon-list', order: 105, interpolate: false, text })`，
+  每条一行「简称 — 一句话」，每条 ≤160 字符、≤40 条、整段 ≤2400 字符，超出提示用 `jargon_list`
+  查全部。**空表返回 `''`**，宿主 `renderContextSections` 只保留非空文本，于是整条 context 被过滤——
+  没用过的项目零开销。
+
+**时机与一致性**（上下文 provider 是同步的，读文件是异步的）：
+
+- `system-prompt/assemble` 装配瀑布里先 `await prompt.ensure(cwd)`（同工作区去重、2 秒上限）再 `next()`；
+- `agent/created` 预热一次（同样 await，1.5 秒上限）；
+- 写操作落地后由 `store.subscribe` 立即更新快照；手改 JSON 超过 30 秒，下次求值自动重读。
+
+**实测证据**：
+
+- A：两个探针子代理（空项目/非空项目）都能复述规则原文，并正确回答"用户给流程起新简称时应当立刻 `jargon_save`，
+  参数写步骤/范围/产出"。
+- B：往 `ask` 放一条「探针条目」后，**主会话本轮运行时上下文里直接出现**：
+
+  ```
+  Jargon recorded in this project (short name — what it means). Call `jargon_list` for the full text of any entry.
+
+  - 探针条目 — 临时探针：用来验证黑话条目是否会注入运行时上下文，验证后即删除。
+  ```
+
+  验证后已删除该条目，`ask/.dsh/` 恢复原状（只有 `skills/`）。
+- 成本：常驻 ≈170 token；条目部分最多 ≈600 token；空表时为 0。
+
+**探针设计的一个坑（记下来免得再踩）**：子代理继承父会话的 `header.cwd`，`cwd` 参数只改变工作目录、
+不改变项目锚点。所以"给子代理指定 /tmp/jargon-probe 却看不到该目录的黑话"是**探针错了**，不是功能错了——
+黑话单按项目锚定（决策 D1），子代理属于父项目。
+
+## 10. 事故：临时诊断把 web 每轮装配打挂（`diag is not defined`）
+
+**经过**：排查 B 段时加了一行临时诊断，写在了 `registerPrompt()` 的装配瀑布回调里，却引用了
+`createJargonPrompt()` 作用域的 `diag` 变量。严格模式下 `ReferenceError`；而瀑布回调抛错 = 本轮装配失败，
+于是 dsh web（装了本插件的 profile）每一轮都报 `本轮运行失败 diag is not defined`。desktop profile 未装该插件，无感。
+
+**修复**：
+
+- 删除全部诊断代码（`grep diag` 归零）；
+- 上下文 provider 取值异常 → 返回 `''`；
+- 瀑布监听器整段 try/catch，异常也继续 `next()`；
+- 三条针对性测试：`ensure` 抛错 / `text` 抛错 / 装配上下文是恶意 getter，三种情况装配都必须成功返回。
+- 流程约束（已写入全局记忆卡）：关键路径代码必须兜底；热重载插件等于部署，**先跑完整测试再重载**。
+
+**教训**：插件代码被宿主缓存在内存里，改磁盘文件不会生效——重载前必须先把代码修好且测试全绿，
+否则一次"看一眼"就会把在用的实例打挂。

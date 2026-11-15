@@ -17,6 +17,7 @@
 const { JargonStore } = require('./store')
 const { registerRoutes } = require('./routes')
 const { registerTools } = require('./tools')
+const { createJargonPrompt, registerPrompt } = require('./prompt')
 
 const name = 'jargon-list'
 
@@ -58,6 +59,41 @@ function apply(ctx, config) {
         warn(`注册 HTTP 路由失败：${(error && error.message) || error}`)
       }
     })
+
+    // 提示词半（A + B）：固定指令 + 把已有条目注入运行时上下文。
+    // 上下文 provider 是同步的，所以这里持一个按工作区缓存的快照。
+    const prompt = createJargonPrompt({ store, warn })
+    ctx.effect(() => () => prompt.dispose(), 'jargon-list: prompt cache')
+
+    ctx.inject(['systemPrompt'], (scope) => {
+      try {
+        scope.effect(() => registerPrompt(scope, prompt, { warn }), 'jargon-list: prompt')
+      } catch (error) {
+        warn(`注册提示词失败：${(error && error.message) || error}`)
+      }
+    })
+
+    // 新 agent 起手先预热一次，而且**要等它读完**：上下文 provider 是同步的，
+    // 不 await 的话第一轮装配会撞上空缓存（实测就是这样：规则段在、条目不在）。
+    // 读一个小 JSON 是毫秒级；加 1.5s 上限，避免异常文件拖慢 agent 启动。
+    try {
+      ctx.on('agent/created', async ({ agent }) => {
+        const cwd = agent && agent.session && agent.session.header && agent.session.header.cwd
+        if (typeof cwd !== 'string' || cwd === '') return
+        let timer
+        const timeout = new Promise((resolve) => {
+          timer = setTimeout(resolve, 1500)
+          if (timer && typeof timer.unref === 'function') timer.unref()
+        })
+        try {
+          await Promise.race([prompt.refresh(cwd).catch(() => {}), timeout])
+        } finally {
+          clearTimeout(timer)
+        }
+      })
+    } catch (error) {
+      warn(`监听 agent/created 失败：${(error && error.message) || error}`)
+    }
 
     // agent 半：没有 tools 服务时同样跳过。
     ctx.inject(['tools'], (scope) => {

@@ -179,6 +179,29 @@ class JargonStore {
     this.fs = fs || fsp
     /** @type {Map<string, Promise<unknown>>} 每个工作区一条串行链。 */
     this.queues = new Map()
+    /** @type {Set<(event: { cwd: string, terms: any[], revision: string, file: string }) => void>} 变更订阅者（提示词缓存等）。 */
+    this.listeners = new Set()
+  }
+
+  /**
+   * 订阅写操作的落地结果（新增/更新/删除都会发一次）。订阅者抛错不影响写。
+   * @param {(event: { cwd: string, terms: any[], revision: string, file: string }) => void} listener
+   * @returns {() => void} 取消订阅。
+   */
+  subscribe(listener) {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  /** 通知订阅者；订阅者的异常一律吞掉，绝不回滚已完成的写入。 */
+  notify(event) {
+    for (const listener of this.listeners) {
+      try {
+        listener(event)
+      } catch {
+        /* 订阅者自己的问题 */
+      }
+    }
   }
 
   /** 工作区里的数据文件绝对路径。 */
@@ -276,7 +299,10 @@ class JargonStore {
 
       const nextText = serialize(sortTerms(terms))
       await this.writeText(file, nextText)
-      return { terms: sortTerms(terms), revision: hashRevision(nextText), entry: { ...entry }, file }
+      const revision = hashRevision(nextText)
+      const sorted = sortTerms(terms)
+      this.notify({ cwd: requireAbsolute(cwd), terms: sorted, revision, file })
+      return { terms: sorted, revision, entry: { ...entry }, file }
     })
   }
 
@@ -305,7 +331,10 @@ class JargonStore {
       terms.splice(index, 1)
       const nextText = serialize(sortTerms(terms))
       await this.writeText(file, nextText)
-      return { terms: sortTerms(terms), revision: hashRevision(nextText), file }
+      const revision = hashRevision(nextText)
+      const sorted = sortTerms(terms)
+      this.notify({ cwd: requireAbsolute(cwd), terms: sorted, revision, file })
+      return { terms: sorted, revision, file }
     })
   }
 }

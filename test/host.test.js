@@ -18,6 +18,7 @@ function fakeCtx(available) {
   const registered = []
   const removed = []
   const routes = []
+  const prompts = { sections: [], contexts: [] }
   const scope = {
     effect(factory, label) {
       effects.push(label)
@@ -46,10 +47,27 @@ function fakeCtx(available) {
         }
       : undefined,
     connection: available.includes('connection') ? { requestRejection: () => undefined } : undefined,
+    systemPrompt: available.includes('systemPrompt')
+      ? {
+          section(definition) {
+            prompts.sections.push(definition)
+            return () => {}
+          },
+          context(definition) {
+            prompts.contexts.push(definition)
+            return () => {}
+          },
+        }
+      : undefined,
     logger: () => ({ warn() {} }),
   }
+  const listeners = []
   const ctx = {
     ...scope,
+    on(event, callback) {
+      listeners.push([event, callback])
+      return () => {}
+    },
     inject(deps, callback) {
       injected.push(deps.join(','))
       const ready = deps.every((dep) => available.includes(dep))
@@ -58,7 +76,7 @@ function fakeCtx(available) {
     },
     get: (key) => scope[key],
   }
-  return { ctx, injected, effects, registered, removed, routes }
+  return { ctx, injected, effects, registered, removed, routes, prompts, listeners }
 }
 
 test('the host entry exports the Cordis plugin shape', () => {
@@ -67,15 +85,38 @@ test('the host entry exports the Cordis plugin shape', () => {
   assert.equal(typeof host.apply, 'function')
 })
 
-test('both halves activate when their services are present', () => {
-  const { ctx, injected, routes, registered, effects } = fakeCtx(['webServer', 'connection', 'tools'])
+test('both halves activate when their services are present', async () => {
+  const { ctx, injected, routes, registered, effects, prompts, listeners } = fakeCtx([
+    'webServer',
+    'connection',
+    'tools',
+    'systemPrompt',
+  ])
   host.apply(ctx, {})
-  assert.deepEqual(injected.sort(), ['tools', 'webServer,connection'])
+  assert.deepEqual(injected.sort(), ['systemPrompt', 'tools', 'webServer,connection'])
   assert.equal(routes.length, 1)
   assert.equal(routes[0].kind, 'prefix')
   assert.equal(routes[0].path, '/-/jargon')
   assert.deepEqual(registered, ['jargon_list', 'jargon_save', 'jargon_delete'])
   assert.ok(effects.some((label) => label === 'jargon-list: routes'))
+
+  // A：固定指令段；B：动态上下文（空表时文本为 ''，宿主会整条过滤）
+  assert.equal(prompts.sections.length, 1)
+  assert.equal(prompts.sections[0].name, 'ui:jargon-list')
+  assert.match(prompts.sections[0].text, /jargon_save/)
+  assert.match(prompts.sections[0].text, /jargon_list/)
+  assert.equal(prompts.contexts.length, 1)
+  assert.equal(prompts.contexts[0].name, 'jargon-list')
+  assert.equal(typeof prompts.contexts[0].text, 'function')
+  assert.equal(prompts.contexts[0].text({}), '', 'no agent/cwd -> no context')
+  assert.ok(effects.some((label) => label === 'jargon-list: prompt'))
+
+  // agent 创建时预热缓存，而且是 await 的（否则首轮装配撞空缓存）
+  assert.deepEqual(listeners.map(([event]) => event), ['agent/created'])
+  const [, listener] = listeners[0]
+  const result = listener({ agent: { session: { header: { cwd: '/tmp/jargon-host-test' } } } })
+  assert.equal(typeof result.then, 'function', 'the warm-up listener must be awaited')
+  return result
 })
 
 test('a host without web/connection still gets the tools', () => {
