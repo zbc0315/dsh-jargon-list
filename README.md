@@ -58,6 +58,20 @@ dsh plugin --profile web add "$PWD"
 - **时机**：上下文 provider 是同步的，所以在 `system-prompt/assemble` 装配瀑布里先 `await` 读一次（同一工作区去重、2 秒上限）再放行；另外 agent 创建时预热一次。写操作落地后由 store 订阅即时更新，手改 JSON 超过 30 秒会自动重读。
 - **失败安全**：这段代码在装配关键路径上，任何异常都被兜住（provider 返回 `''`、瀑布继续 `next()`），最坏情况是这一轮少一段黑话，不会让对话失败。
 
+## 对话里的蓝色高亮（0.1.4）
+
+对话正文里出现已记录的黑话词时，那个词显示成**蓝色**（带细虚线下划线），鼠标移上去浮出解释卡片。
+
+- 只处理聊天区里 markdown 正文（`[data-text-interaction-source]`），工具卡、侧栏、输入框都不碰；
+- 跳过 `pre`/`code`/链接/公式，代码块里的词不会被染色；
+- 只给文本节点套一层 `<span>`，选中与复制不受影响；
+- 词条增删后自动重染；页面不可见时不轮询；
+- 全部逻辑包在 try/catch 里，异常最坏只是"没有高亮"，不影响对话。
+
+> 为什么是 DOM 层：客户端没有"改消息正文渲染"的扩展点（Service/Event 里都没有 markdown 或消息装饰服务），
+> `conversation.chat.text-interaction` 是选中交互面、`conversation.chat.node` 要整体接管节点渲染，
+> 所以选择在已渲染正文上做后处理。
+
 ## 数据格式
 
 ```json

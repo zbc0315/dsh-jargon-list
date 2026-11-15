@@ -17,6 +17,7 @@ import { HeaderButtonIcon, JargonIcon } from './icons.js'
 import { bindT, registerLocales, useT } from './i18n.js'
 import { JargonPanel } from './panel.js'
 import { installStyles } from './styles.js'
+import { installInlineHighlight } from './inline.js'
 
 /** 页签类型 id 与 slot key（契约 §3）。 */
 export const TAB_ID = '@tom2012/dsh-jargon-list'
@@ -101,6 +102,15 @@ export function apply(ctx) {
   const t = (key, params) => bindT(ctx)(key, params)
 
   ctx.effect(() => installStyles(), 'jargon-list: styles')
+
+  // 对话正文里的蓝色高亮 + 悬停解释（纯客户端 DOM 后处理；失败也只是一段高亮没有）。
+  ctx.effect(() => {
+    try {
+      return installInlineHighlight(ctx)
+    } catch {
+      return () => {}
+    }
+  }, 'jargon-list: inline highlight')
 
   // `locale` 和 `sidebarRightTabs` 一样是别的插件稍后才 provide 的服务；
   // 快照式取用会让字典注册静默丢失（面板靠内置退化字典才看着正常）。

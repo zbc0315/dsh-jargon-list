@@ -372,3 +372,39 @@ semver.satisfies(runtimeVersion, range, { includePrerelease: true })
 
 **教训**：插件代码被宿主缓存在内存里，改磁盘文件不会生效——重载前必须先把代码修好且测试全绿，
 否则一次"看一眼"就会把在用的实例打挂。
+
+
+## 11. 对话正文蓝色高亮 + 悬停解释（0.1.4）
+
+**需求**：对话里出现已定义的黑话词 → 该词显示为蓝色 → 鼠标悬停浮出完整解释。
+
+**扩展点结论**（`cordis_inspect_query` 查客户端 Service/Event/Slots）：
+
+- 客户端 Service 只有 layout/locale/sessions/slots/theme/timer/uiWorkspace/workspaces —— 没有 markdown/renderer；
+- 客户端 Event 只有 connection/reset、locale/change、slots/changed、theme/change —— 没有消息渲染事件；
+- `conversation.chat.text-interaction`（已被 `quote` 占用）给的是 `TextInteractionSurface`，是**选中文本的交互面**，不能染色；
+- `conversation.chat.node` 可以整体替换节点渲染器，但 `replaceRisk: shadows-shipped-ui`，要复刻整套消息渲染，不做。
+
+所以走 DOM 后处理层。
+
+**实现**（`src/client/highlight.js` + `tooltip.js` + `inline.js`）：
+
+- 会话 id 取 `[data-conversation-session]`，cwd 用 `readCurrentWorkspace` 从客户端会话快照解析（与面板同一套 D1 规则），
+  再 `GET /-/jargon/state?cwd=` 取词条；会话切换/词条变化时重建匹配器；
+- 匹配：中文子串、英文 Uni 词边界（`PR` 不命中 `PRACTICE`）、长词优先、NFKC + 大小写折叠；
+- 染色：把命中文本节点包成 `<span class="jargon-hl" data-jargon-term>`，颜色用 `--dsw-alias-link`
+  （这个默认主题里 `--dsw-alias-brand-primary` 解析成近白色 `#f9fafb`，不能当蓝色用）；
+- 悬停：自定义卡片（`#jargon-term-tooltip`，portal 到 `body`，靠近视口边缘翻转，滚动/移出即收）；
+- 跳过 `pre/code/a/kbd/samp/var/textarea/script/style/button/select/svg`、`.katex`、`.mermaid`、我们自己的 span；
+- `MutationObserver` 只处理新增/变化节点并忽略自己产生的变更（span 内文本不再命中，所以重复装饰幂等）；
+- 全部包 try/catch。
+
+**实测（真实页面）**：
+
+- 注入一行含「黑话单」的测试节点 → 900ms 内被包成 1 个 `.jargon-hl`；
+- 计算样式 `color: rgb(122, 170, 255)`（= `--dsw-alias-link`），`border-bottom-style: dashed`；
+- 真实鼠标悬停 → `#jargon-term-tooltip` 可见，标题「黑话」，正文为完整定义；
+- 用户消息里的「已定义黑话」在页面上显示为蓝色 + 悬停出卡片（见交付截图）；
+- 词条从 0 → 1 → 2 条时，已渲染消息在 5 秒轮询内自动补染，无需刷新。
+
+**已知边界**：虚拟化列表只染已渲染的消息（滚回旧消息会补染）；英文大小写/全半角折叠对 DOM 原文不做改写，只对词条侧折叠。

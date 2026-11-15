@@ -335,6 +335,49 @@ const CSS = `
   outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-brand-primary));
   outline-offset: -2px;
 }
+
+/* 对话正文里的黑话词：蓝色 + 细虚线下划线，提示“可悬停” */
+.jargon-hl {
+  /* link 词在明暗主题下都是蓝色系；brand 在这个默认主题里是近白色，不能用 */
+  color: var(--dsw-alias-link, var(--dsw-alias-brand-primary));
+  border-bottom: 1px dashed color-mix(in srgb, currentColor 55%, transparent);
+  cursor: help;
+}
+.jargon-hl:hover {
+  border-bottom-style: solid;
+}
+
+/* 悬浮解释卡片：portal 到 body，靠近视口边缘会翻转 */
+.jargon-tip {
+  position: fixed;
+  z-index: 2147483000;
+  max-width: 360px;
+  max-height: 42vh;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md, 8px);
+  background: var(--dsw-alias-bg-overlay);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  font-family: var(--dsw-font-family, system-ui, -apple-system, "Segoe UI", sans-serif);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-primary);
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.jargon-tip[hidden] {
+  display: none;
+}
+.jargon-tip__term {
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: var(--dsw-alias-link, var(--dsw-alias-brand-primary));
+}
+.jargon-tip__def {
+  color: var(--dsw-alias-label-secondary);
+}
 `
 
 /**
